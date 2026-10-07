@@ -17,10 +17,10 @@ class RoastState(TypedDict, total=False):
     manifest: str  # what the user pasted
     error: str | None  # why the input was rejected (None = it's fine)
     findings: list[dict]  # problems the review step finds
-    roast: str  # the final message the user sees
+    output: str  # the final message the user sees
 
 
-# ---------- The form the LLM must fill in ----------
+# ---------- The form the review LLM must fill in ----------
 class Finding(BaseModel):
     """One problem in the manifest."""
 
@@ -45,6 +45,14 @@ Only report problems you can point to in the YAML. If it is solid, return an emp
 Manifest:
 {manifest}"""
 
+ROAST_PROMPT = """You are a witty senior Kubernetes engineer roasting a teammate's manifest.
+Write a short, funny roast (3 to 6 lines) based ONLY on the findings below.
+Roast the YAML, never the person. After each joke, give the fix in one line.
+If the findings say (none), write a one-line grudging compliment instead.
+
+Findings:
+{findings}"""
+
 
 # ---------- Step: parse (plain Python, no LLM) ----------
 def parse(state: RoastState) -> dict:
@@ -58,17 +66,26 @@ def parse(state: RoastState) -> dict:
     return {"error": None}
 
 
-# ---------- Step: review (LLM) ----------
+# ---------- Step: review (LLM, structured) ----------
 def review(state: RoastState) -> dict:
     """LLM lists the problems as structured findings."""
     result = reviewer.invoke(REVIEW_PROMPT.format(manifest=state["manifest"]))
     return {"findings": [f.model_dump() for f in result.findings]}
 
 
+# ---------- Step: roast (LLM, free text) ----------
+def roast(state: RoastState) -> dict:
+    """LLM turns the findings into a roast + fixes."""
+    findings = state.get("findings", [])
+    lines = "\n".join(f"- [{f['severity']}] {f['issue']} Fix: {f['fix']}" for f in findings) or "(none)"
+    reply = llm.invoke(ROAST_PROMPT.format(findings=lines))
+    return {"output": reply.content}
+
+
 # ---------- Step: reject (plain Python, no LLM) ----------
 def reject(state: RoastState) -> dict:
     """Friendly message for input we can't roast."""
-    return {"roast": f"🤨 I only roast Kubernetes manifests. {state['error']}"}
+    return {"output": f"🤨 I only roast Kubernetes manifests. {state['error']}"}
 
 
 # ---------- Conditional edge: read the clipboard, pick the next step ----------
@@ -82,10 +99,12 @@ def route_after_parse(state: RoastState) -> str:
 builder = StateGraph(RoastState)
 builder.add_node("parse", parse)
 builder.add_node("review", review)
+builder.add_node("roast", roast)
 builder.add_node("reject", reject)
 builder.add_edge(START, "parse")
 builder.add_conditional_edges("parse", route_after_parse)
-builder.add_edge("review", END)  # 3.5 changes this to "roast"
+builder.add_edge("review", "roast")
+builder.add_edge("roast", END)
 builder.add_edge("reject", END)
 graph = builder.compile()
 
@@ -110,9 +129,5 @@ SAMPLE_BROKEN = "apiVersion: v1\nkind: [Pod"
 if __name__ == "__main__":
     for name, text in [("pod", SAMPLE_POD), ("recipe", SAMPLE_RECIPE), ("broken", SAMPLE_BROKEN)]:
         result = graph.invoke({"manifest": text})
-        print(f"\n=== {name} ===")
-        if "findings" in result:
-            for f in result["findings"]:
-                print(f"[{f['severity']}] {f['issue']} -> {f['fix']}")
-        else:
-            print(result["roast"])
+        print(f"\n=== {name} ({len(result.get('findings', []))} findings) ===")
+        print(result["output"])
