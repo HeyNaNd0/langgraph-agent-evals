@@ -89,7 +89,7 @@ def reject(state: RoastState) -> dict:
 
 
 # ---------- Conditional edge: read the clipboard, pick the next step ----------
-def route_after_parse(state: RoastState) -> str:
+def route_after_parse(state: RoastState) -> Literal["reject", "review"]:
     if state["error"]:
         return "reject"
     return "review"
