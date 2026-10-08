@@ -1,0 +1,12 @@
+{
+  "01_latest_no_resources.yaml": {"planted_bugs": ["latest-tag", "no-resources"], "should_reject": false},
+  "02_no_probes_privileged.yaml": {"planted_bugs": ["no-probes", "privileged"], "should_reject": false},
+  "03_root_hostpath.yaml": {"planted_bugs": ["run-as-root", "hostpath"], "should_reject": false},
+  "04_hostnetwork_secret.yaml": {"planted_bugs": ["host-network", "plaintext-secret"], "should_reject": false},
+  "05_bare_pod_latest.yaml": {"planted_bugs": ["bare-pod", "latest-tag"], "should_reject": false},
+  "06_plaintext_secret.yaml": {"planted_bugs": ["plaintext-secret"], "should_reject": false},
+  "07_privileged_hostnetwork_no_resources.yaml": {"planted_bugs": ["privileged", "host-network", "no-resources"], "should_reject": false},
+  "08_clean.yaml": {"planted_bugs": [], "should_reject": false},
+  "09_not_a_manifest.txt": {"planted_bugs": [], "should_reject": true},
+  "10_broken.yaml": {"planted_bugs": [], "should_reject": true}
+}

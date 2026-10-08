@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cache
+  labels: {app: cache}
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    seccompProfile: {type: RuntimeDefault}
+  containers:
+    - name: cache
+      image: ghcr.io/example/cache:latest
+      ports:
+        - containerPort: 6379
+      resources:
+        requests: {cpu: 100m, memory: 128Mi}
+        limits: {cpu: 500m, memory: 256Mi}
+      readinessProbe:
+        tcpSocket: {port: 6379}
+      livenessProbe:
+        tcpSocket: {port: 6379}
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: {drop: ["ALL"]}
