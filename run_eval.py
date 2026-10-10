@@ -1,4 +1,3 @@
-
 """Run Roast My YAML against the roast-my-yaml dataset and score it."""
 
 from dotenv import load_dotenv
@@ -84,6 +83,18 @@ def main() -> None:
         max_concurrency=2,
     )
     print(results)
+
+    # ---------- Print only what went wrong ----------
+    print("\n=== What went wrong ===")
+    for row in results:
+        file = row["example"].metadata.get("file", "?")
+        for res in row["evaluation_results"]["results"]:
+            if res.key == "catch_rate" and res.score is not None and res.score < 1:
+                print(f"MISSED       {file}: {res.comment}")
+            if res.key == "false_alarms" and res.score:
+                print(f"FALSE ALARM  {file}: {res.comment}")
+            if res.key == "correct_route" and not res.score:
+                print(f"WRONG ROUTE  {file}")
 
 
 if __name__ == "__main__":
