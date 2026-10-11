@@ -103,4 +103,8 @@ OPENAI_API_KEY=...
 
 ## How I built this
 
-This was my first time using LangGraph and LangSmith. I used Claude as a pair programmer and tutor: it explained concepts and drafted code step by step. I ran, tested, and debugged every step, and the decisions are mine: the agent idea, the test cases and answer key, how to grade them, and what the results meant.
+This was my first time using LangGraph and LangSmith, and I leaned heavily on AI to get here. I used Claude as a pair programmer and tutor: it explained each concept and drafted most of the code step by step. I ran, tested, and debugged every step myself, and the decisions are mine: the agent idea, the test cases and answer key, how to grade them, and what the results meant.
+
+My honest takeaway: a newcomer can't just pick these tools up and go. The core ideas (state, nodes, edges, datasets, evaluators) clicked once I built something with them. The steep part was everything around them: setting up the environment, keeping API keys in two places, and finding things in the LangSmith UI. The specifics are in [`FRICTION_LOG.md`](FRICTION_LOG.md).
+
+The learning curve was steep, but it was fun, and I'd enjoy helping other developers climb it.
