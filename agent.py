@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 class RoastState(TypedDict, total=False):
     manifest: str  # what the user pasted
     error: str | None  # why the input was rejected (None = it's fine)
-    findings: list[dict]  # problems the review step finds
+    findings: list[dict]  # problems found by lint (rules) and review (LLM)
     output: str  # the final message the user sees
 
 
@@ -66,11 +66,42 @@ def parse(state: RoastState) -> dict:
     return {"error": None}
 
 
+# ---------- Step: lint (plain Python rules, no LLM) - new in v2 ----------
+def lint(state: RoastState) -> dict:
+    """Rule checks for problems that are about something MISSING (v1's blind spot)."""
+    doc = yaml.safe_load(state["manifest"])
+    findings = []
+    if doc.get("kind") == "Pod":
+        findings.append({
+            "issue": "This is a bare Pod, so nothing recreates it if it dies or its node fails.",
+            "severity": "warning",
+            "fix": "Run it under a Deployment or another controller.",
+        })
+    spec = doc.get("spec") or {}
+    pod_spec = (spec.get("template") or {}).get("spec") or spec  # Deployment: template.spec, Pod: spec
+    for container in pod_spec.get("containers") or []:
+        name = container.get("name", "?")
+        if "resources" not in container:
+            findings.append({
+                "issue": f"Container '{name}' has no CPU/memory resource requests or limits.",
+                "severity": "warning",
+                "fix": "Set resources.requests and resources.limits.",
+            })
+        if "livenessProbe" not in container and "readinessProbe" not in container:
+            findings.append({
+                "issue": f"Container '{name}' has no liveness or readiness probe.",
+                "severity": "warning",
+                "fix": "Add a readinessProbe and a livenessProbe.",
+            })
+    return {"findings": findings}
+
+
 # ---------- Step: review (LLM, structured) ----------
 def review(state: RoastState) -> dict:
-    """LLM lists the problems as structured findings."""
+    """LLM adds its findings to the ones lint already found."""
     result = reviewer.invoke(REVIEW_PROMPT.format(manifest=state["manifest"]))
-    return {"findings": [f.model_dump() for f in result.findings]}
+    llm_findings = [f.model_dump() for f in result.findings]
+    return {"findings": state.get("findings", []) + llm_findings}
 
 
 # ---------- Step: roast (LLM, free text) ----------
@@ -88,21 +119,23 @@ def reject(state: RoastState) -> dict:
     return {"output": f"🤨 I only roast Kubernetes manifests. {state['error']}"}
 
 
-# ---------- Conditional edge: read the clipboard, pick the next step ----------
-def route_after_parse(state: RoastState) -> Literal["reject", "review"]:
+# ---------- Router: read the clipboard, pick the next step ----------
+def route_after_parse(state: RoastState) -> Literal["reject", "lint"]:
     if state["error"]:
         return "reject"
-    return "review"
+    return "lint"
 
 
 # ---------- Wire the graph ----------
 builder = StateGraph(RoastState)
 builder.add_node("parse", parse)
+builder.add_node("lint", lint)
 builder.add_node("review", review)
 builder.add_node("roast", roast)
 builder.add_node("reject", reject)
 builder.add_edge(START, "parse")
 builder.add_conditional_edges("parse", route_after_parse)
+builder.add_edge("lint", "review")
 builder.add_edge("review", "roast")
 builder.add_edge("roast", END)
 builder.add_edge("reject", END)

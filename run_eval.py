@@ -78,7 +78,7 @@ def main() -> None:
         target,
         data="roast-my-yaml",
         evaluators=[catch_rate, false_alarms, correct_route],
-        experiment_prefix="v1-llm-only",
+        experiment_prefix="v2-lint",
         num_repetitions=3,
         max_concurrency=2,
     )
