@@ -1,7 +1,7 @@
 
 # Roast My YAML 🔥
 
-A LangGraph agent that reviews Kubernetes manifests and roasts every mistake, with a fix for each one. Evaluated with LangSmith (SDK + UI).
+A LangGraph agent that reviews Kubernetes manifests and roasts every mistake, with a fix for each one. Evaluated with LangSmith, both offline (experiments on a labeled dataset) and online (judges on every new trace).
 
 Built for the LangChain Technical Support Engineer take-home.
 
@@ -35,6 +35,16 @@ State: `manifest`, `error`, `findings`, `output`. Steps never call each other; t
 
 ## Evaluation
 
+I evaluate in two places, because they answer different questions:
+
+| | Offline | Online |
+|---|---|---|
+| Runs on | A labeled dataset of 10 test cases | Every new trace in the `langgraph-agent-evals` project |
+| Answers | "Is v2 better than v1 before I ship?" | "Is it still good on real traffic?" |
+| Needs an answer key | Yes | No |
+
+### Offline: experiments on a labeled dataset
+
 Dataset: `dataset/` has 10 hand-labeled cases: 7 manifests with 1–3 planted bugs, 1 clean manifest, and 2 invalid inputs. The answer key is `dataset/answer_key.json`.
 
 | Evaluator | Runs in | Measures |
@@ -44,7 +54,7 @@ Dataset: `dataset/` has 10 hand-labeled cases: 7 manifests with 1–3 planted bu
 | `correct_route` | SDK (code) | Rejects exactly the inputs that aren't manifests |
 | `roast_tone` | LangSmith UI (LLM-as-judge, bound to the dataset) | Funny, kind to the person, every joke has a fix |
 
-### Results (3 repetitions per example)
+#### Results (3 repetitions per example)
 
 | Metric | v1 (LLM only) | v2 (+ lint rules) |
 |---|---|---|
@@ -57,6 +67,17 @@ Dataset: `dataset/` has 10 hand-labeled cases: 7 manifests with 1–3 planted bu
 *v2 changed nothing that affects false alarms, so I read this drop as run-to-run variance, not an improvement.
 
 **What the data showed:** v1 caught every bug that's *written* in the YAML (privileged, hostNetwork, plaintext secrets) but missed bugs that are about something *missing* (no probes, no resources, bare Pods), and it missed them inconsistently between runs. v2 adds deterministic rules for exactly those, so they're caught every time.
+
+**Re-run on Oct 19** (`v2-lint-ab1d8f76`): catch_rate 1.00, correct_route 1.00, roast_tone 1.00, false_alarms 1.67, P50 4.10 s. Both non-manifests were rejected with 0 tokens in 0.01 s.
+
+### Online: evaluators on production traces
+
+| Evaluator | Type | Checks |
+|---|---|---|
+| `roast_quality` | LLM-as-judge | Every joke has a correct fix; roasts the YAML, not the person; refusals pass |
+| Prompt Injection | Prebuilt LLM-as-judge | Pasted YAML trying to override the agent's instructions |
+
+Both run on 100% of new traces and need the OpenAI key saved as a LangSmith workspace secret. Why `roast_quality` exists: in a live run, the roast dropped the fix after its last joke, even though `roast_tone` scored 1.00 on every offline run.
 
 ## Run it
 
@@ -91,10 +112,13 @@ OPENAI_API_KEY=...
 
 ## What's next
 
+- **Close the loop:** send traces that fail `roast_quality` to an annotation queue, and add confirmed failures to the dataset as new test cases.
 - **v3:** a severity rubric in the review prompt to cut false alarms on clean manifests. One change at a time, measured.
-- **Judge calibration:** `roast_tone` passed every run. I'd test it against deliberately bad roasts to confirm it can fail.
+- **Judge calibration:** test both judges against deliberately bad roasts to confirm they can fail.
+- **Input hardening:** an empty input crashes `parse` with `KeyError` (fix: `state.get("manifest", "")`), and multi-document YAML (`---`) is rejected as invalid (fix: `yaml.safe_load_all`).
 - **Roast repetition:** the roast prompt's "3 to 6 lines" forces padding when there's only one finding.
 - **Dataset v2:** split `/livez` and `/readyz` in the clean manifest so it's unambiguously clean.
+- **Containerize:** build an Agent Server image and deploy it to Kubernetes.
 
 ## Notes and feedback
 
