@@ -1,4 +1,3 @@
-
 # Roast My YAML 🔥
 
 A LangGraph agent that reviews Kubernetes manifests and roasts every mistake, with a fix for each one. Evaluated with LangSmith, both offline (experiments on a labeled dataset) and online (judges on every new trace).
@@ -16,22 +15,54 @@ Built for the LangChain Technical Support Engineer take-home.
 
 ```mermaid
 graph LR
-    START --> parse
-    parse -->|valid| lint
-    parse -->|invalid| reject
-    lint --> review --> roast --> END
+    START([START]) --> parse["parse<br/>Python"]
+    parse -->|"valid manifest"| lint["lint<br/>Python rules"]
+    parse -->|"not YAML, or no apiVersion/kind"| reject["reject<br/>Python"]
+    lint --> review["review<br/>LLM, structured output"]
+    review --> roast["roast<br/>LLM"]
+    roast --> END([END])
     reject --> END
+
+    classDef python fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef llm fill:#fef3c7,stroke:#d97706,color:#78350f
+    class parse,lint,reject python
+    class review,roast llm
 ```
 
-| Step | Type | Job |
-|---|---|---|
-| `parse` | Python | Is this a Kubernetes manifest? (YAML with `apiVersion` + `kind`) |
-| `lint` | Python rules | Catches what's *missing*: resources, probes, bare Pods |
-| `review` | LLM, structured output | Finds everything else as `{issue, severity, fix}` |
-| `roast` | LLM | Turns the findings into jokes + fixes |
-| `reject` | Python | Polite refusal for anything that isn't a manifest |
+Blue nodes are plain Python: free, instant, and the same on every run. Amber nodes call the LLM (`gpt-5.4-mini`): they cost tokens and can vary between runs.
 
-State: `manifest`, `error`, `findings`, `output`. Steps never call each other; they only read and write the shared state.
+### The nodes
+
+| Node | Type | Reads | Writes | What it does |
+|---|---|---|---|---|
+| `parse` | Python | `manifest` | `error` | Loads the input as YAML. Sets `error` if it isn't valid YAML, or if it has no `apiVersion` and `kind`; otherwise sets `error` to `None`. |
+| `lint` | Python rules | `manifest` | `findings` | Flags what's *missing*, which the LLM alone caught inconsistently: a bare Pod with no controller, a container with no CPU/memory `resources`, and a container with neither a liveness nor a readiness probe. |
+| `review` | LLM, structured output | `manifest`, `findings` | `findings` | Sends the manifest to the model, which must answer as a list of `{issue, severity, fix}`, and appends those to lint's findings. It doesn't see lint's findings, so the same problem can appear twice. |
+| `roast` | LLM | `findings` | `output` | Turns the findings into a short roast with a fix after each joke. With no findings, it writes a one-line grudging compliment. |
+| `reject` | Python | `error` | `output` | Returns "🤨 I only roast Kubernetes manifests." plus the reason. No LLM call, no cost. |
+
+**Routing:** after `parse`, `route_after_parse` reads `error`. If it's set, the graph goes to `reject`; otherwise it goes to `lint`. The function's `Literal["reject", "lint"]` return type is what lets LangGraph Studio draw both branches (see [`FRICTION_LOG.md`](FRICTION_LOG.md) #4).
+
+### The state
+
+Steps never call each other; they only read and write this shared state:
+
+| Key | Type | Written by | Meaning |
+|---|---|---|---|
+| `manifest` | `str` | The caller | The input to roast |
+| `error` | `str` or `None` | `parse` | Why the input was rejected; `None` means it's a manifest |
+| `findings` | list of `{issue, severity, fix}` | `lint`, then `review` | Problems found; severity is `critical`, `warning`, or `nitpick` |
+| `output` | `str` | `roast` or `reject` | The final message the user sees |
+
+### Example: two inputs, step by step
+
+| Node | `07_privileged_hostnetwork_no_resources.yaml` | A cookie recipe |
+|---|---|---|
+| `parse` | `error: None`, so it goes to `lint` | `error: "That's valid YAML, but not a Kubernetes manifest…"`, so it goes to `reject` |
+| `lint` | +1 finding: container `frontend` has no resources | Skipped |
+| `review` | +`privileged: true`, +`hostNetwork: true`, sometimes more | Skipped |
+| `roast` | A joke and a fix for each finding | Skipped |
+| `reject` | Skipped | Polite refusal: 0 tokens, about 0.01 s |
 
 ## Evaluation
 
